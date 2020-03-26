@@ -57,16 +57,19 @@ if __name__ == '__main__':
     model_name = 'simple'
 
     # There is one model in the repository directory
-    if len(triton_client.get_model_repository_index().models) != 1:
-        sys.exit()
+    if len(triton_client.get_model_repository_index()["index"]) != 2:
+        print("model repository should have only 1 index")
+        sys.exit(1)
 
     triton_client.load_model(model_name)
     if not triton_client.is_model_ready(model_name):
-        sys.exit()
+        print("unable to load model")
+        sys.exit(1)
 
     triton_client.unload_model(model_name)
     if triton_client.is_model_ready(model_name):
-        sys.exit()
+        print("unable to unload model")
+        sys.exit(1)
 
     # Trying to load wrong model name should emit exception
     try:
