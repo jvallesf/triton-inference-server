@@ -101,8 +101,13 @@ char*
 MutableMemory::MutableBuffer(
     TRTSERVER_Memory_Type* memory_type, int64_t* memory_type_id)
 {
-  *memory_type = memory_type_;
-  *memory_type_id = memory_type_id_;
+  if (memory_type != nullptr) {
+    *memory_type = memory_type_;
+  }
+  if (memory_type_id != nullptr) {
+    *memory_type_id = memory_type_id_;
+  }
+
   return buffer_;
 }
 
