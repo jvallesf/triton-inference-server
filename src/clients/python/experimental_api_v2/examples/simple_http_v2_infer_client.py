@@ -44,8 +44,8 @@ def test_infer(model_name, input0_data, input1_data):
     outputs.append(httpclient.InferOutput('OUTPUT0'))
     outputs.append(httpclient.InferOutput('OUTPUT1'))
     query_params = {'test_1': 1, 'test_2': 2}
-    results = triton_client.infer(model_name=model_name,
-                                  inputs=inputs,
+    results = triton_client.infer(model_name,
+                                  inputs,
                                   outputs=outputs,
                                   query_params=query_params)
 
@@ -100,8 +100,7 @@ if __name__ == '__main__':
             sys.exit(1)
 
     # Infer with incorrect model name
-    response = test_infer("wrong model name", input0_data,
-                          input1_data).get_response()
+    response = test_infer("wrong_model_name", input0_data, input1_data).get_response()
     print(response)
     if "error" not in response.keys():
         print("improper error message for wrong model name")
