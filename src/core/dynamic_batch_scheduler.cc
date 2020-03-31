@@ -26,11 +26,15 @@
 
 #include "src/core/dynamic_batch_scheduler.h"
 
-#include <sys/resource.h>
-#include <sys/syscall.h>
-#include <sys/time.h>
 #include <sys/types.h>
-#include <unistd.h>
+#ifdef _MSC_VER
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <sys/resource.h>
+#endif
+#include <chrono>
 #include "src/core/constants.h"
 #include "src/core/logging.h"
 #include "src/core/model_config.h"
@@ -229,7 +233,16 @@ DynamicBatchScheduler::SchedulerThread(
     const std::shared_ptr<std::atomic<bool>>& rthread_exit,
     std::promise<bool>* is_initialized)
 {
-  if (setpriority(PRIO_PROCESS, syscall(SYS_gettid), nice) == 0) {
+  int retVal;
+#ifdef _MSC_VER
+  // In Windows the range of possible values is between -15 and 15
+  int winPriority = std::min(std::max(nice, -15), 15);
+  retVal = SetThreadPriority(GetCurrentThread(), winPriority);
+#else
+  retVal = setpriority(PRIO_PROCESS, syscall(SYS_gettid), nice)
+#endif
+
+  if (retVal  == 0) {
     LOG_VERBOSE(1) << "Starting dynamic-batch scheduler thread " << runner_id
                    << " at nice " << nice << "...";
   } else {
@@ -534,9 +547,8 @@ DynamicBatchScheduler::GetDynamicBatch(const int64_t runner_id)
   // batch queuing delay and execute now if queuing delay is
   // exceeded. If queuing delay not exceeded create a timer to wakeup
   // a thread to check again at the maximum allowed delay.
-  struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC, &now);
-  uint64_t now_ns = TIMESPEC_TO_NANOS(now);
+  TimePoint now = ClockType::now();
+  uint64_t now_ns = TIMEPOINT_TO_NANOS(now);
   uint64_t delay_ns = now_ns - queue_.OldestEnqueueTime();
 
   if (delay_ns >= pending_batch_delay_ns_) {

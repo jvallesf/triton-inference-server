@@ -115,10 +115,8 @@ PriorityQueue::PolicyQueue::Enqueue(Scheduler::Payload&& payload)
     }
   }
   if (timeout_us != 0) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    timeout_timestamp_ns_.emplace_back(
-        TIMESPEC_TO_NANOS(now) + timeout_us * 1000);
+    TimePoint now = ClockType::now();
+    timeout_timestamp_ns_.emplace_back(TIMEPOINT_TO_NANOS(now) + timeout_us * 1000);
   } else {
     timeout_timestamp_ns_.emplace_back(0);
   }
@@ -145,9 +143,8 @@ bool
 PriorityQueue::PolicyQueue::ApplyPolicy(
     size_t idx, size_t* rejected_count, size_t* rejected_batch_size)
 {
-  struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC, &now);
-  auto now_nanoseconds = TIMESPEC_TO_NANOS(now);
+  TimePoint now = ClockType::now();
+  auto now_nanoseconds = TIMEPOINT_TO_NANOS(now);
   if (idx < queue_.size()) {
     size_t curr_idx = idx;
     while (curr_idx < queue_.size()) {
@@ -304,9 +301,8 @@ bool
 PriorityQueue::IsCursorValid()
 {
   if (pending_cursor_.valid_) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return TIMESPEC_TO_NANOS(now) <
+    TimePoint now = ClockType::now();
+    return TIMEPOINT_TO_NANOS(now) <
            pending_cursor_.pending_batch_closest_timeout_ns_;
   }
   return false;
@@ -361,13 +357,13 @@ PriorityQueue::AdvanceCursor()
     }
   }
 
-  auto curr_enqueue_time_ns = TIMESPEC_TO_NANOS(
+  auto curr_enqueue_time_ns = TIMEPOINT_TO_NANOS(
       pending_cursor_.curr_it_->second.At(pending_cursor_.queue_idx_)
           .stats_->Timestamp(ModelInferStats::TimestampKind::kQueueStart));
   if (pending_cursor_.pending_batch_oldest_enqueue_time_ns_ != 0) {
     pending_cursor_.pending_batch_oldest_enqueue_time_ns_ = std::min(
         pending_cursor_.pending_batch_oldest_enqueue_time_ns_,
-        curr_enqueue_time_ns);
+        (uint64_t)curr_enqueue_time_ns);
   } else {
     pending_cursor_.pending_batch_oldest_enqueue_time_ns_ =
         curr_enqueue_time_ns;

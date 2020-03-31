@@ -46,6 +46,8 @@ namespace nvidia { namespace inferenceserver {
 // Scheduler that implements dynamic batching.
 class DynamicBatchScheduler : public Scheduler {
  public:
+  using ClockType = std::chrono::steady_clock;
+  using TimePoint = ClockType::time_point;
   // Create a scheduler to support a given number of runners and a run
   // function to call when a request is scheduled.
   static Status Create(

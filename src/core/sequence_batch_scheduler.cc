@@ -26,10 +26,14 @@
 
 #include "src/core/sequence_batch_scheduler.h"
 
+#ifdef _MSC_VER
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <sys/resource.h>
-#include <sys/syscall.h>
+#endif
 #include <sys/types.h>
-#include <unistd.h>
 #include "src/core/constants.h"
 #include "src/core/dynamic_batch_scheduler.h"
 #include "src/core/logging.h"
@@ -437,9 +441,8 @@ SequenceBatchScheduler::Enqueue(
   // sequence, and if it is it will release the sequence slot (if any)
   // allocated to that sequence.
   {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    uint64_t now_us = TIMESPEC_TO_NANOS(now) / 1000;
+    TimePoint now = ClockType::now();
+    uint64_t now_us = TIMEPOINT_TO_NANOS(now) / 1000;
     correlation_id_timestamps_[correlation_id] = now_us;
   }
 
@@ -618,7 +621,16 @@ SequenceBatchScheduler::DelayScheduler(
 void
 SequenceBatchScheduler::ReaperThread(const int nice)
 {
-  if (setpriority(PRIO_PROCESS, syscall(SYS_gettid), nice) == 0) {
+  int retVal;
+#ifdef _MSC_VER
+  // In Windows the range of possible values is between -15 and 15
+  int winPriority = std::min(std::max(nice, -15), 15);
+  retVal = SetThreadPriority(GetCurrentThread(), winPriority);
+#else
+  retVal = setpriority(PRIO_PROCESS, syscall(SYS_gettid), nice)
+#endif
+
+  if (retVal == 0) {
     LOG_VERBOSE(1) << "Starting sequence-batch reaper thread at nice " << nice
                    << "...";
   } else {
@@ -636,9 +648,8 @@ SequenceBatchScheduler::ReaperThread(const int nice)
     {
       std::unique_lock<std::mutex> lock(mu_);
 
-      struct timespec now;
-      clock_gettime(CLOCK_MONOTONIC, &now);
-      uint64_t now_us = TIMESPEC_TO_NANOS(now) / 1000;
+      TimePoint now = ClockType::now();
+      uint64_t now_us = TIMEPOINT_TO_NANOS(now) / 1000;
 
       for (auto cid_itr = correlation_id_timestamps_.cbegin();
            cid_itr != correlation_id_timestamps_.cend();) {
@@ -930,7 +941,16 @@ void
 DirectSequenceBatch::SchedulerThread(
     const int nice, std::promise<bool>* is_initialized)
 {
-  if (setpriority(PRIO_PROCESS, syscall(SYS_gettid), nice) == 0) {
+  int retVal;
+#ifdef _MSC_VER
+  // In Windows the range of possible values is between -15 and 15
+  int winPriority = std::min(std::max(nice, -15), 15);
+  retVal = SetThreadPriority(GetCurrentThread(), winPriority);
+#else
+  retVal = setpriority(PRIO_PROCESS, syscall(SYS_gettid), nice)
+#endif
+
+  if (retVal == 0) {
     LOG_VERBOSE(1) << "Starting Direct sequence-batch scheduler thread "
                    << batcher_idx_ << " at nice " << nice << "...";
   } else {

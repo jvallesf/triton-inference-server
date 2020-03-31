@@ -318,11 +318,10 @@ ServerStatTimerScoped::~ServerStatTimerScoped()
 {
   // Do nothing reporting is disabled...
   if (enabled_) {
-    struct timespec end;
-    clock_gettime(CLOCK_MONOTONIC, &end);
+    TimePoint end = ClockType::now();
 
-    uint64_t start_ns = TIMESPEC_TO_NANOS(start_);
-    uint64_t end_ns = TIMESPEC_TO_NANOS(end);
+    uint64_t start_ns = TIMEPOINT_TO_NANOS(start_);
+    uint64_t end_ns = TIMEPOINT_TO_NANOS(end);
     uint64_t duration = (start_ns > end_ns) ? 0 : end_ns - start_ns;
 
     status_manager_->UpdateServerStat(duration, kind_);
@@ -379,7 +378,7 @@ ModelInferStats::Report()
   const uint64_t request_duration_ns =
       Duration(TimestampKind::kRequestStart, TimestampKind::kRequestEnd);
   const uint64_t last_timestamp_ms =
-      TIMESPEC_TO_MILLIS(Timestamp(TimestampKind::kRequestStart));
+      TIMEPOINT_TO_MILLIS(Timestamp(TimestampKind::kRequestStart));
 
   if (failed_) {
     status_manager_->UpdateFailedInferStats(
@@ -448,10 +447,10 @@ ModelInferStats::Duration(
     ModelInferStats::TimestampKind start_kind,
     ModelInferStats::TimestampKind end_kind) const
 {
-  const struct timespec& start = Timestamp(start_kind);
-  const struct timespec& end = Timestamp(end_kind);
-  uint64_t start_ns = TIMESPEC_TO_NANOS(start);
-  uint64_t end_ns = TIMESPEC_TO_NANOS(end);
+  const TimePoint& start = Timestamp(start_kind);
+  const TimePoint& end = Timestamp(end_kind);
+  uint64_t start_ns = TIMEPOINT_TO_NANOS(start);
+  uint64_t end_ns = TIMEPOINT_TO_NANOS(end);
 
   // If the start or end timestamp is 0 then can't calculate the
   // duration, so return 0.

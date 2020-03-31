@@ -30,6 +30,7 @@
 
 #ifdef TRTIS_ENABLE_GCS
 #include <google/cloud/storage/client.h>
+#include <re2/re2.h>
 #endif  // TRTIS_ENABLE_GCS
 
 #ifdef TRTIS_ENABLE_S3
@@ -42,13 +43,19 @@
 #endif  // TRTIS_ENABLE_S3
 
 #include <google/protobuf/text_format.h>
-#include <re2/re2.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <cerrno>
 #include <fstream>
+
+#ifdef _MSC_VER
+#include  <io.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "src/core/constants.h"
 
 namespace nvidia { namespace inferenceserver {
@@ -78,6 +85,8 @@ class FileSystem {
 
 class LocalFileSystem : public FileSystem {
  public:
+  using ClockType = std::chrono::steady_clock;
+  using TimePoint = ClockType::time_point;
   Status FileExists(const std::string& path, bool* exists) override;
   Status IsDirectory(const std::string& path, bool* is_dir) override;
   Status FileModificationTime(
@@ -100,7 +109,11 @@ class LocalFileSystem : public FileSystem {
 Status
 LocalFileSystem::FileExists(const std::string& path, bool* exists)
 {
+#ifdef _MSC_VER
+  *exists = (_access(path.c_str(), 0) == 0);
+#else
   *exists = (access(path.c_str(), F_OK) == 0);
+#endif
   return Status::Success;
 }
 
@@ -127,7 +140,8 @@ LocalFileSystem::FileModificationTime(
     return Status(RequestStatusCode::INTERNAL, "failed to stat file " + path);
   }
 
-  *mtime_ns = TIMESPEC_TO_NANOS(st.st_mtim);
+  auto mtime = std::chrono::system_clock::from_time_t(st.st_mtime);
+  *mtime_ns = TIMEPOINT_TO_NANOS(mtime);
   return Status::Success;
 }
 

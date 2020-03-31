@@ -25,12 +25,19 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "src/core/logging.h"
-#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
-#include <unistd.h>
+#include <algorithm>
+#include <chrono>
 #include <iomanip>
 #include <iostream>
+#ifdef _MSC_VER
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace nvidia { namespace inferenceserver {
 
@@ -55,10 +62,13 @@ const std::vector<char> LogMessage::level_name_{'E', 'W', 'I'};
 
 LogMessage::LogMessage(const char* file, int line, uint32_t level)
 {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  struct tm tm_time;
-  gmtime_r(((time_t*)&(tv.tv_sec)), &tm_time);
+  std::chrono::time_point<std::chrono::system_clock> rawTime =
+      std::chrono::system_clock::now();
+  uint64_t microseconds = std::chrono::duration_cast<std::chrono::microseconds>(rawTime.time_since_epoch()).count();
+
+  time_t rawTimeAux = std::chrono::system_clock::to_time_t(rawTime);
+  struct tm* p_tm_time;
+  p_tm_time = gmtime(&rawTimeAux);
 
   std::string path(file);
   size_t pos = path.rfind('/');
@@ -66,13 +76,21 @@ LogMessage::LogMessage(const char* file, int line, uint32_t level)
     path = path.substr(pos + 1, std::string::npos);
   }
 
+  // Get pid
+  uint32_t pid;
+#ifdef _MSC_VER
+  pid = GetCurrentProcessId();
+#else
+  pid = getpid();
+#endif
+
   stream_ << level_name_[std::min(level, (uint32_t)Level::kINFO)]
-          << std::setfill('0') << std::setw(2) << (tm_time.tm_mon + 1)
-          << std::setw(2) << tm_time.tm_mday << " " << std::setw(2)
-          << tm_time.tm_hour << ':' << std::setw(2) << tm_time.tm_min << ':'
-          << std::setw(2) << tm_time.tm_sec << "." << std::setw(6) << tv.tv_usec
-          << ' ' << static_cast<uint32_t>(getpid()) << ' ' << path << ':'
-          << line << "] ";
+          << std::setfill('0') << std::setw(2) << (p_tm_time->tm_mon + 1)
+          << std::setw(2) << p_tm_time->tm_mday << " " << std::setw(2)
+          << p_tm_time->tm_hour << ':' << std::setw(2) << p_tm_time->tm_min
+          << ':' << std::setw(2) << p_tm_time->tm_sec << "." << std::setw(6)
+          << microseconds << ' ' << pid << ' ' << path
+          << ':' << line << "] ";
 }
 
 LogMessage::~LogMessage()

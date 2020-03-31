@@ -28,7 +28,7 @@
 
 #include <stdint.h>
 #include <time.h>
-#include <unistd.h>
+
 #include <algorithm>
 #include <csignal>
 #include <iostream>
@@ -77,9 +77,8 @@ class ScopedAtomicIncrement {
 InferenceServer::InferenceServer()
     : version_(TRTIS_VERSION), ready_state_(ServerReadyState::SERVER_INVALID)
 {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  start_time_ns_ = TIMESPEC_TO_NANOS(ts);
+  TimePoint now = ClockType::now();
+  uint64_t start_time_ns_ = TIMEPOINT_TO_NANOS(now);
 
   id_ = "inference:0";
   protocol_version_ = 1;
@@ -392,10 +391,8 @@ InferenceServer::UnloadModel(const std::string& model_name)
 uint64_t
 InferenceServer::UptimeNs() const
 {
-  struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC, &now);
-
-  uint64_t now_ns = TIMESPEC_TO_NANOS(now);
+  TimePoint now = ClockType::now();
+  uint64_t now_ns = TIMEPOINT_TO_NANOS(now);
   return now_ns - start_time_ns_;
 }
 

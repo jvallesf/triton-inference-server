@@ -27,6 +27,7 @@
 
 #include <deque>
 #include <unordered_map>
+#include <chrono>
 #include "src/core/model_config.h"
 #include "src/core/scheduler.h"
 #include "src/core/server_status.h"
@@ -52,6 +53,9 @@ using ModelQueuePolicyMap =
 
 class PriorityQueue {
  public:
+  using ClockType = std::chrono::steady_clock;
+  using TimePoint = ClockType::time_point;
+
   // Construct a queue with no priority level with default queue policy,
   // which will behave the same as regular queue.
   PriorityQueue();

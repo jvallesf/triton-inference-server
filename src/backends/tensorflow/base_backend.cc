@@ -727,6 +727,7 @@ BaseBackend::Context::Run(
   // Collect the names of outputs requested by any request
   // payload.
   std::set<std::string> required_outputs;
+  auto inin = required_outputs.size();
   for (auto& payload : *payloads) {
     const auto& irequest = payload.request_provider_->Request();
     for (const auto& pr : irequest->RequestedOutputs()) {
@@ -737,7 +738,8 @@ BaseBackend::Context::Run(
   // Create the vector of required output names using the names
   // expected by the model.
   std::vector<std::string> model_output_names;
-  const char* output_names_cstr[required_outputs.size()];
+  //const char* output_names_cstr[required_outputs.size()];
+  const char** output_names_cstr = new const char*[required_outputs.size()];
   {
     size_t oidx = 0;
     for (const auto& name : required_outputs) {
@@ -806,6 +808,8 @@ BaseBackend::Context::Run(
         required_outputs.size(), output_names_cstr, &rtl));
     output_tensors.reset(rtl);
   }
+
+  delete output_names_cstr;
 
 #ifdef TRTIS_ENABLE_STATS
   for (auto& payload : *payloads) {

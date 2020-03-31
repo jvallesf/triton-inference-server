@@ -50,6 +50,9 @@ enum ModelControlMode { MODE_NONE, MODE_POLL, MODE_EXPLICIT };
 // Inference server information.
 class InferenceServer {
  public:
+  using ClockType = std::chrono::steady_clock;
+  using TimePoint = ClockType::time_point;
+
   // Construct an inference server.
   InferenceServer();
 

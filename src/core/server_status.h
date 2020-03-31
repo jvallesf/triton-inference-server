@@ -30,6 +30,7 @@
 #include "src/core/model_config.pb.h"
 #include "src/core/server_status.pb.h"
 #include "src/core/status.h"
+#include <chrono>
 
 namespace nvidia { namespace inferenceserver {
 
@@ -39,6 +40,9 @@ class ServerStatusManager;
 // Updates a server stat with duration measured by a C++ scope.
 class ServerStatTimerScoped {
  public:
+  using ClockType = std::chrono::steady_clock;
+  using TimePoint = ClockType::time_point;
+
   enum Kind {
     // Stat for status request. Duration from request to response.
     STATUS,
@@ -56,7 +60,7 @@ class ServerStatTimerScoped {
       const std::shared_ptr<ServerStatusManager>& status_manager, Kind kind)
       : status_manager_(status_manager), kind_(kind), enabled_(true)
   {
-    clock_gettime(CLOCK_MONOTONIC, &start_);
+    start_ = ClockType::now();
   }
 
   // Stop the timer and record the duration, unless reporting has been
@@ -73,7 +77,7 @@ class ServerStatTimerScoped {
   std::shared_ptr<ServerStatusManager> status_manager_;
   const Kind kind_;
   bool enabled_;
-  struct timespec start_;
+  TimePoint start_;
 };
 
 // Stats collector for an inference request. If TRTIS_ENABLE_STATS is not
@@ -81,6 +85,9 @@ class ServerStatTimerScoped {
 // along the inference pipeline (i.e. scheduler)
 class ModelInferStats {
  public:
+  using ClockType = std::chrono::steady_clock;
+  using TimePoint = ClockType::time_point;
+
   enum class TimestampKind {
     kRequestStart,        // Start request processing
     kQueueStart,          // Request enters the queue
@@ -172,16 +179,16 @@ class ModelInferStats {
 #endif  // TRTIS_ENABLE_STATS
 
   // Get the timestamp for a kind.
-  const struct timespec& Timestamp(TimestampKind kind) const
+  const TimePoint& Timestamp(TimestampKind kind) const
   {
     return timestamps_[(size_t)kind];
   }
 
   // Set a timestamp to the current time. Return the timestamp.
-  const struct timespec& CaptureTimestamp(TimestampKind kind)
+  const TimePoint& CaptureTimestamp(TimestampKind kind)
   {
-    struct timespec& ts = timestamps_[(size_t)kind];
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    TimePoint& ts = timestamps_[(size_t)kind];
+    ts = ClockType::now();
     return ts;
   }
 
@@ -213,7 +220,7 @@ class ModelInferStats {
   TRTSERVER_Trace* trace_;
 #endif  // TRTIS_ENABLE_STATS
 
-  std::vector<struct timespec> timestamps_;
+  std::vector<TimePoint> timestamps_;
 };
 
 // Manage access and updates to server status information.

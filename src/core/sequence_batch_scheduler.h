@@ -25,8 +25,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
-#include <sys/time.h>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <future>
@@ -34,6 +34,7 @@
 #include <queue>
 #include <thread>
 #include <unordered_map>
+
 #include "src/core/model_config.h"
 #include "src/core/model_config.pb.h"
 #include "src/core/provider.h"
@@ -49,6 +50,9 @@ class SequenceBatch;
 // inferences.
 class SequenceBatchScheduler : public Scheduler {
  public:
+  using ClockType = std::chrono::steady_clock;
+  using TimePoint = ClockType::time_point;
+
   SequenceBatchScheduler() = default;
   ~SequenceBatchScheduler();
 

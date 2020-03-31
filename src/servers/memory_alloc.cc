@@ -25,17 +25,20 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cuda_runtime_api.h>
-#include <unistd.h>
+#include <boost/program_options.hpp>
 #include <chrono>
 #include <future>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
+
 #include "src/core/api.pb.h"
 #include "src/core/server_status.pb.h"
 #include "src/core/trtserver.h"
 #include "src/servers/common.h"
+
+namespace po = boost::program_options;
 
 namespace ni = nvidia::inferenceserver;
 
@@ -61,25 +64,6 @@ static auto gpu_data_deleter = [](void* data) {
     FAIL_IF_CUDA_ERR(cudaFree(data), "releasing GPU memory");
   }
 };
-
-void
-Usage(char** argv, const std::string& msg = std::string())
-{
-  if (!msg.empty()) {
-    std::cerr << msg << std::endl;
-  }
-
-  std::cerr << "Usage: " << argv[0] << " [options]" << std::endl;
-  std::cerr << "\t-i [input device ID]" << std::endl;
-  std::cerr << "\t-out [output device ID]" << std::endl;
-  std::cerr << "\t-v Enable verbose logging" << std::endl;
-  std::cerr << "\t-r [model repository absolute path]" << std::endl;
-  std::cerr << "\t-m [model name to be tested]" << std::endl;
-  std::cerr << "\tFor device ID, -1 is used to stand for CPU device, "
-            << "non-negative value is for GPU device." << std::endl;
-
-  exit(1);
-}
 
 TRTSERVER_Error*
 ResponseAlloc(
@@ -360,6 +344,7 @@ CompareStringResult(
 
 }  // namespace
 
+
 int
 main(int argc, char** argv)
 {
@@ -372,52 +357,68 @@ main(int argc, char** argv)
   io_spec.output_type_ = TRTSERVER_MEMORY_CPU;
   io_spec.output_type_id_ = 0;
 
+  // Declare the supported options.
+  po::options_description desc("Allowed options");
+  desc.add_options()(
+      "i", po::value<int>(),
+      "[input device ID] -1 is used to stand for CPU device, non-negative "
+      "value is for GPU device")("o", po::value<int>(), "[output device ID]")(
+      "v", "Enable verbose logging")(
+      "r", po::value<std::string>(), "[model repository absolute path]")(
+      "m", po::value<std::string>(), "[model name to be tested]")(
+      "h", "Show help");
+
+  po::variables_map vm;
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
   // Parse commandline...
-  int opt;
-  while ((opt = getopt(argc, argv, "vi:o:r:m:")) != -1) {
-    switch (opt) {
-      case 'i': {
-        int64_t raw_id = std::stoll(optarg);
-        if (raw_id < 0) {
-          io_spec.input_type_ = TRTSERVER_MEMORY_CPU;
-          io_spec.input_type_id_ = 0;
-        } else {
-          io_spec.input_type_ = TRTSERVER_MEMORY_GPU;
-          io_spec.input_type_id_ = raw_id;
-        }
-        break;
-      }
-      case 'o': {
-        int64_t raw_id = std::stoll(optarg);
-        if (raw_id < 0) {
-          io_spec.output_type_ = TRTSERVER_MEMORY_CPU;
-          io_spec.output_type_id_ = 0;
-        } else {
-          io_spec.output_type_ = TRTSERVER_MEMORY_GPU;
-          io_spec.output_type_id_ = raw_id;
-        }
-        break;
-      }
-      case 'r':
-        model_repository_path = optarg;
-        break;
-      case 'm':
-        model_name = optarg;
-        break;
-      case 'v':
-        verbose_level = 1;
-        break;
-      case '?':
-        Usage(argv);
-        break;
+  if (vm.count("i")) {
+    int64_t raw_id = vm["i"].as<int>();
+    if (raw_id < 0) {
+      io_spec.input_type_ = TRTSERVER_MEMORY_CPU;
+      io_spec.input_type_id_ = 0;
+    } else {
+      io_spec.input_type_ = TRTSERVER_MEMORY_GPU;
+      io_spec.input_type_id_ = raw_id;
     }
   }
 
+  if (vm.count("o")) {
+    int64_t raw_id = vm["o"].as<int>();
+    if (raw_id < 0) {
+      io_spec.output_type_ = TRTSERVER_MEMORY_CPU;
+      io_spec.output_type_id_ = 0;
+    } else {
+      io_spec.output_type_ = TRTSERVER_MEMORY_GPU;
+      io_spec.output_type_id_ = raw_id;
+    }
+  }
+
+  if (vm.count("r")) {
+    model_repository_path = vm["r"].as<std::string>();
+  }
+
+  if (vm.count("m")) {
+    model_name = vm["m"].as<std::string>();
+  }
+
+  if (vm.count("v")) {
+    verbose_level = 1;
+  }
+
+  if (vm.count("h")) {
+    std::cout << desc << "\n";
+    exit(1);
+  }
+
   if (model_repository_path.empty()) {
-    Usage(argv, "-r must be used to specify model repository path");
+    std::cout << desc << "\n";
+    std::cout << "\n-r must be used to specify model repository path\n";
   }
   if (model_name.empty()) {
-    Usage(argv, "-m must be used to specify model being test");
+    std::cout << desc << "\n";
+    std::cout << "\n-m must be used to specify model being test\n";
   }
 
   // Create the server...
