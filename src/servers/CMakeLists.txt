@@ -387,16 +387,38 @@ add_library(
   ${CUDA_OBJS}
   ${BACKEND_OBJS}
 )
-set_target_properties(
-  trtserver
-  PROPERTIES
-    SKIP_BUILD_RPATH TRUE
-    BUILD_WITH_INSTALL_RPATH TRUE
-    INSTALL_RPATH_USE_LINK_PATH FALSE
-    INSTALL_RPATH "$\{ORIGIN\}:$\{ORIGIN\}/tensorflow:$\{ORIGIN\}/pytorch:$\{ORIGIN\}/onnx"
-    LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libtrtserver.ldscript
-    LINK_FLAGS "-Wl,--version-script libtrtserver.ldscript"
-)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  set_target_properties(
+    trtserver
+    PROPERTIES
+      SKIP_BUILD_RPATH TRUE
+      BUILD_WITH_INSTALL_RPATH TRUE
+      INSTALL_RPATH_USE_LINK_PATH FALSE
+      INSTALL_RPATH "$\{ORIGIN\}:$\{ORIGIN\}/tensorflow:$\{ORIGIN\}/pytorch:$\{ORIGIN\}/onnx"
+  )
+else()
+  set_target_properties(
+    trtserver
+    PROPERTIES
+      SKIP_BUILD_RPATH TRUE
+      BUILD_WITH_INSTALL_RPATH TRUE
+      INSTALL_RPATH_USE_LINK_PATH FALSE
+      INSTALL_RPATH "$\{ORIGIN\}:$\{ORIGIN\}/tensorflow:$\{ORIGIN\}/pytorch:$\{ORIGIN\}/onnx"
+      LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libtrtserver.ldscript
+      LINK_FLAGS "-Wl,--version-script libtrtserver.ldscript"
+  )
+endif()
+
+add_definitions(-DBOOST_ALL_DYN_LINK)
+set(BOOST_LIBRARYDIR ${BOOST_ROOT}/stage/lib/)
+cmake_policy(SET CMP0074 NEW)
+set(Boost_USE_STATIC_LIBS OFF) 
+set(Boost_USE_MULTITHREADED ON)  
+#set(Boost_USE_STATIC_RUNTIME ON)
+find_package(Boost COMPONENTS date_time)
+message(aslkdjaslkdjasd ${Boost_LIBRARIES})
+#target_link_libraries(trtserver PRIVATE ${Boost_LIBRARIES})
+
 target_link_libraries(
   trtserver
   PRIVATE -ldl

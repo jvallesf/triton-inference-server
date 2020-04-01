@@ -39,7 +39,6 @@
 #include "src/servers/common.h"
 
 namespace po = boost::program_options;
-
 namespace ni = nvidia::inferenceserver;
 
 namespace {
@@ -361,7 +360,7 @@ main(int argc, char** argv)
   po::options_description desc("Allowed options");
   desc.add_options()(
       "i", po::value<int>(),
-      "[input device ID] -1 is used to stand for CPU device, non-negative "
+      "[input device ID] -1 is used to stand for CPU device, non-negative"
       "value is for GPU device")("o", po::value<int>(), "[output device ID]")(
       "v", "Enable verbose logging")(
       "r", po::value<std::string>(), "[model repository absolute path]")(

@@ -24,10 +24,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <getopt.h>
 #include <stdint.h>
-#include <unistd.h>
+
 #include <algorithm>
+#include <boost/program_options.hpp>
 #include <cctype>
 #include <condition_variable>
 #include <csignal>
@@ -60,6 +60,8 @@ static_assert(
 #ifdef TRTIS_ENABLE_GRPC_V2
 #include "src/servers/grpc_server_v2.h"
 #endif  // TRTIS_ENABLE_GRPC_V2
+
+namespace po = boost::program_options;
 
 namespace {
 
@@ -191,31 +193,51 @@ enum OptionId {
   OPTION_TF_ADD_VGPU,
 };
 
+po::options_description desc("Allowed options");
+
 struct Option {
-  Option(OptionId id, std::string flag, std::string desc, bool has_arg = true)
-      : id_(id), flag_(flag), desc_(desc), has_arg_(has_arg)
+  Option(OptionId id, std::string flag, std::string desc)
+      : id_(id), flag_(flag), semantic_(nullptr), desc_(desc), has_arg_(false)
+  {
+  }
+  Option(
+      OptionId id, std::string flag, po::value_semantic* semantic,
+      std::string desc)
+      : id_(id), flag_(flag), semantic_(semantic), desc_(desc), has_arg_(true)
   {
   }
 
-  struct option GetLongOption() const
+  void AddOption(po::options_description optionsDesc)
   {
-    struct option lo {
-      flag_.c_str(), (has_arg_) ? required_argument : no_argument, nullptr, id_
-    };
-    return lo;
-  }
+    if (has_arg_) {
+      optionsDesc.add_options()(flag_.c_str(), semantic_, desc_.c_str());
+    } else {
+      optionsDesc.add_options()(flag_.c_str(), desc_.c_str());
+    }
+  };
 
   const OptionId id_;
   const std::string flag_;
   const std::string desc_;
   const bool has_arg_;
+  const po::value_semantic* semantic_;
 };
+
+const char*
+GetFlagFromId(std::vector<Option> options, enum OptionId id)
+{
+  for (auto op = options.begin(); op != options.end(); op++) {
+    if (op->id_ == id) {
+      return op->flag_.c_str();
+    }
+  }
+}
 
 std::vector<Option> options_
 {
-  {OPTION_HELP, "help", "Print usage", false},
+  {OPTION_HELP, "help", "Print usage"},
 #ifdef TRTIS_ENABLE_LOGGING
-      {OPTION_LOG_VERBOSE, "log-verbose",
+      {OPTION_LOG_VERBOSE, "log-verbose", po::value<int>(),
        "Set verbose logging level. Zero (0) disables verbose logging and "
        "values >= 1 enable verbose logging"},
       {OPTION_LOG_INFO, "log-info", "Enable/disable info-level logging"},
@@ -223,14 +245,15 @@ std::vector<Option> options_
        "Enable/disable warning-level logging"},
       {OPTION_LOG_ERROR, "log-error", "Enable/disable error-level logging"},
 #endif  // TRTIS_ENABLE_LOGGING
-      {OPTION_ID, "id", "Identifier for this server"},
-      {OPTION_MODEL_REPOSITORY, "model-store",
+      {OPTION_ID, "id", po::value<std::string>(), "Identifier for this server"},
+      {OPTION_MODEL_REPOSITORY, "model-store", po::value<std::string>(),
        "Path to model repository directory. It may be specified multiple times "
        "to add multiple model repositories. Note that if a model is not unique "
        "across all model repositories at any time, the model will not be "
        "available. This option is deprecated, the preferred usage is "
        "--model-repository"},
       {OPTION_MODEL_REPOSITORY, "model-repository",
+       po::value<std::string>()->multitoken(),
        "Path to model repository directory. It may be specified multiple times "
        "to add multiple model repositories. Note that if a model is not unique "
        "across all model repositories at any time, the model will not be "
@@ -250,26 +273,27 @@ std::vector<Option> options_
 #ifdef TRTIS_ENABLE_HTTP
       {OPTION_ALLOW_HTTP, "allow-http",
        "Allow the server to listen for HTTP requests."},
-      {OPTION_HTTP_PORT, "http-port",
+      {OPTION_HTTP_PORT, "http-port", po::value<int>(),
        "The port for the server to listen on for HTTP requests."},
-      {OPTION_HTTP_HEALTH_PORT, "http-health-port",
+      {OPTION_HTTP_HEALTH_PORT, "http-health-port", po::value<int>(),
        "The port for the server to listen on for HTTP Health requests."},
-      {OPTION_HTTP_THREAD_COUNT, "http-thread-count",
+      {OPTION_HTTP_THREAD_COUNT, "http-thread-count", po::value<int>(),
        "Number of threads handling HTTP requests."},
 #endif  // TRTIS_ENABLE_HTTP
 #if defined(TRTIS_ENABLE_GRPC) || defined(TRTIS_ENABLE_GRPC_V2)
       {OPTION_ALLOW_GRPC, "allow-grpc",
        "Allow the server to listen for GRPC requests."},
-      {OPTION_API_VERSION, "api-version",
+      {OPTION_API_VERSION, "api-version", po::value<int>(),
        "Version of the GRPC/HTTP API to use. Default is version 1. Allowed "
        "versions are 1 and 2."},
-      {OPTION_GRPC_PORT, "grpc-port",
+      {OPTION_GRPC_PORT, "grpc-port", po::value<int>(),
        "The port for the server to listen on for GRPC requests."},
       {OPTION_GRPC_INFER_THREAD_COUNT, "grpc-infer-thread-count",
-       "Number of threads handling GRPC inference requests."},
+       po::value<int>(), "Number of threads handling GRPC inference requests."},
       {OPTION_GRPC_STREAM_INFER_THREAD_COUNT, "grpc-stream-infer-thread-count",
+       po::value<int>(),
        "Number of threads handling GRPC stream inference requests."},
-      {OPTION_GRPC_INFER_ALLOCATION_POOL_SIZE,
+      {OPTION_GRPC_INFER_ALLOCATION_POOL_SIZE, po::value<int>(),
        "grpc-infer-allocation-pool-size",
        "The maximum number of inference request/response objects that remain "
        "allocated for reuse. As long as the number of in-flight requests "
@@ -282,19 +306,20 @@ std::vector<Option> options_
       {OPTION_ALLOW_GPU_METRICS, "allow-gpu-metrics",
        "Allow the server to provide GPU metrics. Ignored unless "
        "--allow-metrics is true."},
-      {OPTION_METRICS_PORT, "metrics-port",
+      {OPTION_METRICS_PORT, "metrics-port", po::value<int>(),
        "The port reporting prometheus metrics."},
 #endif  // TRTIS_ENABLE_METRICS
 #ifdef TRTIS_ENABLE_TRACING
-      {OPTION_TRACE_FILEPATH, "trace-file",
+      {OPTION_TRACE_FILEPATH, "trace-file", po::value<std::string>(),
        "Set the file where trace output will be saved."},
-      {OPTION_TRACE_LEVEL, "trace-level",
+      {OPTION_TRACE_LEVEL, "trace-level", po::value<std::string>(),
        "Set the trace level. OFF to disable tracing, MIN for minimal tracing, "
        "MAX for maximal tracing. Default is OFF."},
-      {OPTION_TRACE_RATE, "trace-rate",
+      {OPTION_TRACE_RATE, "trace-rate", po::value<int>(),
        "Set the trace sampling rate. Default is 1000."},
 #endif  // TRTIS_ENABLE_TRACING
       {OPTION_MODEL_CONTROL_MODE, "model-control-mode",
+       po::value<std::string>(),
        "Specify the mode for model management. Options are \"none\", \"poll\" "
        "and \"explicit\". The default is \"poll\". "
        "For \"none\", the server will load all models in the model "
@@ -309,7 +334,7 @@ std::vector<Option> options_
        "rate is controlled by 'repository-poll-secs'. This option is "
        "deprecated by --model-control-mode, this option can not be specified "
        "if --model-control-mode is specified."},
-      {OPTION_POLL_REPO_SECS, "repository-poll-secs",
+      {OPTION_POLL_REPO_SECS, "repository-poll-secs", po::value<int>(),
        "Interval in seconds between each poll of the model repository to check "
        "for changes. Valid only when --allow-poll-model-repository=true is "
        "specified."},
@@ -321,20 +346,22 @@ std::vector<Option> options_
        "option is deprecated by --model-control-mode, this option can not be "
        "specified if --model-control-mode is specified."},
       {OPTION_STARTUP_MODEL, "load-model",
+       po::value<std::vector<std::string>>(),
        "Name of the model to be loaded on server startup. It may be specified "
        "multiple times to add multiple models. Note that this option will only "
        "take affect if --allow-model-control is true."},
       {OPTION_PINNED_MEMORY_POOL_BYTE_SIZE, "pinned-memory-pool-byte-size",
+       po::value<long long>(),
        "The total byte size that can be allocated as pinned system memory. "
        "If GPU support is enabled, the server will allocate pinned system "
        "memory to accelerate data transfer between host and devices until it "
        "exceeds the specified byte size. This option will not affect the "
        "allocation conducted by the backend frameworks. Default is 256 MB."},
       {OPTION_MIN_SUPPORTED_COMPUTE_CAPABILITY,
-       "min-supported-compute-capability",
+       "min-supported-compute-capability", po::value<double>(),
        "The minimum supported CUDA compute capability. GPUs that don't support "
        "this compute capability will not be used by the server."},
-      {OPTION_EXIT_TIMEOUT_SECS, "exit-timeout-secs",
+      {OPTION_EXIT_TIMEOUT_SECS, "exit-timeout-secs", po::value<int>(),
        "Timeout (in seconds) when exiting to wait for in-flight inferences to "
        "finish. After the timeout expires the server exits even if inferences "
        "are still in flight."},
@@ -342,12 +369,13 @@ std::vector<Option> options_
        "Instruct TensorFlow to use CPU implementation of an operation when "
        "a GPU implementation is not available."},
       {OPTION_TF_GPU_MEMORY_FRACTION, "tf-gpu-memory-fraction",
+       po::value<float>(),
        "Reserve a portion of GPU memory for TensorFlow models. Default "
        "value 0.0 indicates that TensorFlow should dynamically allocate "
        "memory as needed. Value of 1.0 indicates that TensorFlow should "
        "allocate all of GPU memory."},
   {
-    OPTION_TF_ADD_VGPU, "tf-add-vgpu",
+    OPTION_TF_ADD_VGPU, "tf-add-vgpu", po::value<std::string>(),
         "Add a tensorflow virtual GPU instances on a physical GPU. Input "
         "should be 2 integers and 1 float separated by semicolons in the "
         "format <physical GPU>;<number of virtual GPUs>;<memory limit per VGPU "
@@ -853,10 +881,10 @@ Parse(TRTSERVER_ServerOptions* server_options, int argc, char** argv)
 {
   std::string server_id("inference:0");
   std::set<std::string> model_repository_paths;
-  bool exit_on_error = true;
-  bool strict_model_config = true;
-  bool strict_readiness = true;
-  bool tf_allow_soft_placement = true;
+  bool exit_on_error = false;
+  bool strict_model_config = false;
+  bool strict_readiness = false;
+  bool tf_allow_soft_placement = false;
   float tf_gpu_memory_fraction = 0.0;
   VgpuOption tf_vgpu;
   int32_t exit_timeout_secs = 30;
@@ -907,182 +935,210 @@ Parse(TRTSERVER_ServerOptions* server_options, int argc, char** argv)
   TRTSERVER_Model_Control_Mode control_mode = TRTSERVER_MODEL_CONTROL_POLL;
 
 #ifdef TRTIS_ENABLE_LOGGING
-  bool log_info = true;
-  bool log_warn = true;
-  bool log_error = true;
+  bool log_info = false;
+  bool log_warn = false;
+  bool log_error = false;
   int32_t log_verbose = 0;
 #endif  // TRTIS_ENABLE_LOGGING
 
-  std::vector<struct option> long_options;
-  for (const auto& o : options_) {
-    long_options.push_back(o.GetLongOption());
-  }
-  long_options.push_back({nullptr, 0, nullptr, 0});
-
-  int flag;
-  while ((flag = getopt_long(argc, argv, "", &long_options[0], NULL)) != -1) {
-    switch (flag) {
-      case OPTION_HELP:
-      case '?':
-        std::cerr << Usage() << std::endl;
-        return false;
-#ifdef TRTIS_ENABLE_LOGGING
-      case OPTION_LOG_VERBOSE:
-        log_verbose = ParseIntBoolOption(optarg);
-        break;
-      case OPTION_LOG_INFO:
-        log_info = ParseBoolOption(optarg);
-        break;
-      case OPTION_LOG_WARNING:
-        log_warn = ParseBoolOption(optarg);
-        break;
-      case OPTION_LOG_ERROR:
-        log_error = ParseBoolOption(optarg);
-        break;
-#endif  // TRTIS_ENABLE_LOGGING
-
-      case OPTION_ID:
-        server_id = optarg;
-        break;
-      case OPTION_MODEL_REPOSITORY:
-        model_repository_paths.insert(optarg);
-        break;
-
-      case OPTION_EXIT_ON_ERROR:
-        exit_on_error = ParseBoolOption(optarg);
-        break;
-      case OPTION_STRICT_MODEL_CONFIG:
-        strict_model_config = ParseBoolOption(optarg);
-        break;
-      case OPTION_STRICT_READINESS:
-        strict_readiness = ParseBoolOption(optarg);
-        break;
-
-#ifdef TRTIS_ENABLE_HTTP
-      case OPTION_ALLOW_HTTP:
-        allow_http_ = ParseBoolOption(optarg);
-        break;
-      case OPTION_HTTP_PORT:
-        http_port = ParseIntOption(optarg);
-        http_health_port = http_port;
-        break;
-      case OPTION_HTTP_HEALTH_PORT:
-        http_health_port = ParseIntOption(optarg);
-        break;
-      case OPTION_HTTP_THREAD_COUNT:
-        http_thread_cnt = ParseIntOption(optarg);
-        break;
-#endif  // TRTIS_ENABLE_HTTP
-
-#if defined(TRTIS_ENABLE_GRPC) || defined(TRTIS_ENABLE_GRPC_V2)
-      case OPTION_ALLOW_GRPC:
-        allow_grpc_ = ParseBoolOption(optarg);
-        break;
-      case OPTION_API_VERSION:
-        api_version = ParseIntOption(optarg);
-        break;
-      case OPTION_GRPC_PORT:
-        grpc_port = ParseIntOption(optarg);
-        break;
-      case OPTION_GRPC_INFER_THREAD_COUNT:
-        grpc_infer_thread_cnt = ParseIntOption(optarg);
-        break;
-      case OPTION_GRPC_STREAM_INFER_THREAD_COUNT:
-        grpc_stream_infer_thread_cnt = ParseIntOption(optarg);
-        break;
-      case OPTION_GRPC_INFER_ALLOCATION_POOL_SIZE:
-        grpc_infer_allocation_pool_size = ParseIntOption(optarg);
-        break;
-#endif  // TRTIS_ENABLE_GRPC || TRTIS_ENABLE_GRPC_V2
-
-#ifdef TRTIS_ENABLE_METRICS
-      case OPTION_ALLOW_METRICS:
-        allow_metrics_ = ParseBoolOption(optarg);
-        break;
-      case OPTION_ALLOW_GPU_METRICS:
-        allow_gpu_metrics = ParseBoolOption(optarg);
-        break;
-      case OPTION_METRICS_PORT:
-        metrics_port = ParseIntOption(optarg);
-        break;
-#endif  // TRTIS_ENABLE_METRICS
-
-#ifdef TRTIS_ENABLE_TRACING
-      case OPTION_TRACE_FILEPATH:
-        trace_filepath = optarg;
-        break;
-      case OPTION_TRACE_LEVEL:
-        trace_level = ParseTraceLevelOption(optarg);
-        break;
-      case OPTION_TRACE_RATE:
-        trace_rate = ParseIntOption(optarg);
-        break;
-#endif  // TRTIS_ENABLE_TRACING
-
-      case OPTION_ALLOW_POLL_REPO:
-        allow_poll_model_repository = ParseBoolOption(optarg);
-        deprecated_control_mode_set = true;
-        break;
-      case OPTION_POLL_REPO_SECS:
-        repository_poll_secs = ParseIntOption(optarg);
-        break;
-      case OPTION_ALLOW_MODEL_CONTROL:
-        allow_model_control = ParseBoolOption(optarg);
-        deprecated_control_mode_set = true;
-        break;
-      case OPTION_STARTUP_MODEL:
-        startup_models_.insert(optarg);
-        break;
-      case OPTION_MODEL_CONTROL_MODE: {
-        std::string mode_str(optarg);
-        std::transform(
-            mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
-        if (mode_str == "none") {
-          control_mode = TRTSERVER_MODEL_CONTROL_NONE;
-        } else if (mode_str == "poll") {
-          control_mode = TRTSERVER_MODEL_CONTROL_POLL;
-        } else if (mode_str == "explicit") {
-          control_mode = TRTSERVER_MODEL_CONTROL_EXPLICIT;
-        } else {
-          std::cerr << "invalid argument for --model-control-mode" << std::endl;
-          std::cerr << Usage() << std::endl;
-          return false;
-        }
-        control_mode_set = true;
-        break;
-      }
-      case OPTION_PINNED_MEMORY_POOL_BYTE_SIZE:
-        pinned_memory_pool_byte_size = ParseLongLongOption(optarg);
-        break;
-      case OPTION_MIN_SUPPORTED_COMPUTE_CAPABILITY:
-        min_supported_compute_capability = ParseDoubleOption(optarg);
-        break;
-      case OPTION_EXIT_TIMEOUT_SECS:
-        exit_timeout_secs = ParseIntOption(optarg);
-        break;
-
-      case OPTION_TF_ALLOW_SOFT_PLACEMENT:
-        tf_allow_soft_placement = ParseBoolOption(optarg);
-        break;
-      case OPTION_TF_GPU_MEMORY_FRACTION:
-        tf_gpu_memory_fraction = ParseFloatOption(optarg);
-        break;
-      case OPTION_TF_ADD_VGPU:
-        tf_vgpu = ParseVGPUOption(optarg);
-        FAIL_IF_ERR(
-            TRTSERVER_ServerOptionsAddTensorFlowVgpuMemoryLimits(
-                server_options, tf_vgpu.gpu_device_, tf_vgpu.num_vgpus_,
-                tf_vgpu.mem_limit_mbytes_),
-            "adding tensorflow VGPU instances");
-        break;
-    }
+  // Declare the supported options.
+  po::options_description desc("Allowed options");
+  for (auto op = options_.begin(); op != options_.end(); op++) {
+    op->AddOption(desc);
   }
 
-  if (optind < argc) {
-    std::cerr << "Unexpected argument: " << argv[optind] << std::endl;
+  po::variables_map vm;
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
+  // Parse commandline...
+  if (vm.count(GetFlagFromId(options_, OPTION_HELP))) {
     std::cerr << Usage() << std::endl;
     return false;
   }
+#ifdef TRTIS_ENABLE_LOGGING
+  if (vm.count(GetFlagFromId(options_, OPTION_LOG_VERBOSE))) {
+    log_verbose = vm[GetFlagFromId(options_, OPTION_LOG_VERBOSE)].as<int>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_LOG_INFO))) {
+    log_info = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_LOG_WARNING))) {
+    log_warn = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_LOG_ERROR))) {
+    log_error = true;
+  }
+#endif  // TRTIS_ENABLE_LOGGING
+  if (vm.count(GetFlagFromId(options_, OPTION_ID))) {
+    server_id = vm[GetFlagFromId(options_, OPTION_ID)].as<std::string>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_MODEL_REPOSITORY))) {
+    auto vector =
+        vm[GetFlagFromId(options_, OPTION_ID)].as<std::vector<std::string>>();
+    for (auto arg = vector.begin(); arg != vector.end(); arg++) {
+      model_repository_paths.insert(*arg);
+    }
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_EXIT_ON_ERROR))) {
+    exit_on_error = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_STRICT_MODEL_CONFIG))) {
+    strict_model_config = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_STRICT_READINESS))) {
+    strict_readiness = true;
+  }
+
+#ifdef TRTIS_ENABLE_HTTP
+  if (vm.count(GetFlagFromId(options_, OPTION_ALLOW_HTTP))) {
+    allow_http_ = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_HTTP_PORT))) {
+    http_port = vm[GetFlagFromId(options_, OPTION_HTTP_PORT)].as<int>();
+    http_health_port = http_port;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_HTTP_HEALTH_PORT))) {
+    http_health_port =
+        vm[GetFlagFromId(options_, OPTION_HTTP_HEALTH_PORT)].as<int>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_HTTP_THREAD_COUNT))) {
+    http_thread_cnt =
+        vm[GetFlagFromId(options_, OPTION_HTTP_THREAD_COUNT)].as<int>();
+  }
+#endif  // TRTIS_ENABLE_HTTP
+
+#if defined(TRTIS_ENABLE_GRPC) || defined(TRTIS_ENABLE_GRPC_V2)
+  if (vm.count(GetFlagFromId(options_, OPTION_ALLOW_GRPC))) {
+    allow_grpc_ = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_API_VERSION))) {
+    api_version = vm[GetFlagFromId(options_, OPTION_API_VERSION)].as<int>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_GRPC_PORT))) {
+    grpc_port = vm[GetFlagFromId(options_, OPTION_GRPC_PORT)].as<int>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_GRPC_INFER_THREAD_COUNT))) {
+    grpc_infer_thread_cnt =
+        vm[GetFlagFromId(options_, OPTION_GRPC_INFER_THREAD_COUNT)].as<int>();
+  }
+  if (vm.count(
+          GetFlagFromId(options_, OPTION_GRPC_STREAM_INFER_THREAD_COUNT))) {
+    grpc_stream_infer_thread_cnt =
+        vm[GetFlagFromId(options_, OPTION_GRPC_STREAM_INFER_THREAD_COUNT)]
+            .as<int>();
+  }
+  if (vm.count(
+          GetFlagFromId(options_, OPTION_GRPC_INFER_ALLOCATION_POOL_SIZE))) {
+    grpc_infer_allocation_pool_size =
+        vm[GetFlagFromId(options_, OPTION_GRPC_INFER_ALLOCATION_POOL_SIZE)]
+            .as<int>();
+  }
+#endif  // TRTIS_ENABLE_GRPC || TRTIS_ENABLE_GRPC_V2
+
+#ifdef TRTIS_ENABLE_METRICS
+  if (vm.count(GetFlagFromId(options_, OPTION_ALLOW_METRICS))) {
+    allow_metrics_ = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_ALLOW_GPU_METRICS))) {
+    allow_gpu_metrics = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_METRICS_PORT))) {
+    metrics_port = vm[GetFlagFromId(options_, OPTION_METRICS_PORT)].as<int>();
+  }
+#endif  // TRTIS_ENABLE_METRICS
+
+#ifdef TRTIS_ENABLE_TRACING
+  if (vm.count(GetFlagFromId(options_, OPTION_TRACE_FILEPATH))) {
+    trace_filepath =
+        vm[GetFlagFromId(options_, OPTION_TRACE_FILEPATH)].as<std::string>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_TRACE_LEVEL))) {
+    trace_level = ParseTraceLevelOption(
+        vm[GetFlagFromId(options_, OPTION_TRACE_LEVEL)].as<std::string>());
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_TRACE_RATE))) {
+    trace_rate = vm[GetFlagFromId(options_, OPTION_TRACE_RATE)].as<int>();
+  }
+#endif  // TRTIS_ENABLE_TRACING
+
+  if (vm.count(GetFlagFromId(options_, OPTION_ALLOW_POLL_REPO))) {
+    allow_poll_model_repository = true;
+    deprecated_control_mode_set = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_POLL_REPO_SECS))) {
+    repository_poll_secs =
+        vm[GetFlagFromId(options_, OPTION_POLL_REPO_SECS)].as<int>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_ALLOW_MODEL_CONTROL))) {
+    allow_model_control = true;
+    deprecated_control_mode_set = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_STARTUP_MODEL))) {
+    auto vector = vm[GetFlagFromId(options_, OPTION_STARTUP_MODEL)]
+                      .as<std::vector<std::string>>();
+    for (auto arg = vector.begin(); arg != vector.end(); arg++) {
+      startup_models_.insert(*arg);
+    }
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_MODEL_CONTROL_MODE))) {
+    std::string mode_str =
+        vm[GetFlagFromId(options_, OPTION_MODEL_CONTROL_MODE)]
+            .as<std::string>();
+    std::transform(
+        mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
+    if (mode_str == "none") {
+      control_mode = TRTSERVER_MODEL_CONTROL_NONE;
+    } else if (mode_str == "poll") {
+      control_mode = TRTSERVER_MODEL_CONTROL_POLL;
+    } else if (mode_str == "explicit") {
+      control_mode = TRTSERVER_MODEL_CONTROL_EXPLICIT;
+    } else {
+      std::cerr << "invalid argument for --model-control-mode" << std::endl;
+      std::cerr << Usage() << std::endl;
+      return false;
+    }
+    control_mode_set = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_PINNED_MEMORY_POOL_BYTE_SIZE))) {
+    pinned_memory_pool_byte_size =
+        vm[GetFlagFromId(options_, OPTION_PINNED_MEMORY_POOL_BYTE_SIZE)]
+            .as<long long>();
+  }
+  if (vm.count(
+          GetFlagFromId(options_, OPTION_MIN_SUPPORTED_COMPUTE_CAPABILITY))) {
+    pinned_memory_pool_byte_size =
+        vm[GetFlagFromId(options_, OPTION_MIN_SUPPORTED_COMPUTE_CAPABILITY)]
+            .as<double>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_EXIT_TIMEOUT_SECS))) {
+    exit_timeout_secs =
+        vm[GetFlagFromId(options_, OPTION_EXIT_TIMEOUT_SECS)].as<int>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_TF_ALLOW_SOFT_PLACEMENT))) {
+    tf_allow_soft_placement = true;
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_TF_GPU_MEMORY_FRACTION))) {
+    tf_gpu_memory_fraction =
+        vm[GetFlagFromId(options_, OPTION_TF_GPU_MEMORY_FRACTION)].as<float>();
+  }
+  if (vm.count(GetFlagFromId(options_, OPTION_TF_ADD_VGPU))) {
+    std::string string =
+        vm[GetFlagFromId(options_, OPTION_TF_ADD_VGPU)].as<std::string>();
+    tf_vgpu = ParseVGPUOption(string);
+    FAIL_IF_ERR(
+        TRTSERVER_ServerOptionsAddTensorFlowVgpuMemoryLimits(
+            server_options, tf_vgpu.gpu_device_, tf_vgpu.num_vgpus_,
+            tf_vgpu.mem_limit_mbytes_),
+        "adding tensorflow VGPU instances");
+  }
+
+  // TODO --> Return unexoected argument
+  // if (optind < argc) {
+  //  std::cerr << "Unexpected argument: " << argv[optind] << std::endl;
+  //  std::cerr << Usage() << std::endl;
+  //  return false;
+  //}
 
 #ifdef TRTIS_ENABLE_LOGGING
   // Initialize our own logging instance since it is used by GRPC and

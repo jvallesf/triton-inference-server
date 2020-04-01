@@ -24,13 +24,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <unistd.h>
+#include <boost/program_options.hpp>
 #include <chrono>
 #include <future>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
+
 #include "src/core/api.pb.h"
 #include "src/core/server_status.pb.h"
 #include "src/core/trtserver.h"
@@ -40,6 +41,7 @@
 #include <cuda_runtime_api.h>
 #endif  // TRTIS_ENABLE_GPU
 
+namespace po = boost::program_options;
 namespace ni = nvidia::inferenceserver;
 
 namespace {
@@ -57,21 +59,6 @@ static auto gpu_data_deleter = [](void* data) {
   }
 };
 #endif  // TRTIS_ENABLE_GPU
-
-void
-Usage(char** argv, const std::string& msg = std::string())
-{
-  if (!msg.empty()) {
-    std::cerr << msg << std::endl;
-  }
-
-  std::cerr << "Usage: " << argv[0] << " [options]" << std::endl;
-  std::cerr << "\t-g Use GPU memory for input and output tensors" << std::endl;
-  std::cerr << "\t-v Enable verbose logging" << std::endl;
-  std::cerr << "\t-r [model repository absolute path]" << std::endl;
-
-  exit(1);
-}
 
 TRTSERVER_Error*
 ResponseAlloc(
@@ -272,31 +259,41 @@ main(int argc, char** argv)
   std::string model_repository_path;
   int verbose_level = 0;
 
+  // Declare the supported options.
+  po::options_description desc("Allowed options");
+  desc.add_options()
+      ("g", "Use GPU memory for input and output tensors")
+      ("v", "Enable verbose logging")
+      ("r", po::value<std::string>(), "[model repository absolute path]");
+
+  po::variables_map vm;
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
   // Parse commandline...
-  int opt;
-  while ((opt = getopt(argc, argv, "vgr:")) != -1) {
-    switch (opt) {
-      case 'g':
-        use_gpu_memory = true;
-        break;
-      case 'r':
-        model_repository_path = optarg;
-        break;
-      case 'v':
-        verbose_level = 1;
-        break;
-      case '?':
-        Usage(argv);
-        break;
-    }
+  if (vm.count("g")) {
+    use_gpu_memory = true;
+  }
+
+  if (vm.count("v")) {
+    verbose_level = 1;
+  }
+
+  if (vm.count("r")) {
+    model_repository_path = vm["r"].as<std::string>();
+  }
+
+  if (vm.count("h")) {
+    std::cout << desc << "\n";
+    exit(1);
   }
 
   if (model_repository_path.empty()) {
-    Usage(argv, "-r must be used to specify model repository path");
+    std::cout << "\n-r must be used to specify model repository path\n";
   }
 #ifndef TRTIS_ENABLE_GPU
   if (use_gpu_memory) {
-    Usage(argv, "-g can not be used without enabling GPU");
+    std::cout << "\n-g can not be used without enabling GPU\n";
   }
 #endif  // TRTIS_ENABLE_GPU
 
